@@ -166,15 +166,16 @@ func (d DummyActuator) Effect(_ *common.State, _ map[string]common.Profile) {
 }
 
 func TestStartActuatorPluginForSuccess(t *testing.T) {
+	t.Setenv("IDO_PLUGIN_AUTH_TOKEN", "test-token")
 	var tmp []actuators.Actuator
-	pluginManager := plugins.NewPluginManagerServer(tmp, "localhost", 33350)
+	pluginManager := plugins.NewPluginManagerServer(tmp, "localhost", 43350)
 	err := pluginManager.Start()
 	if err != nil {
 		t.Fatalf("Could not start plugin manager error was: %v", err)
 	}
 
 	actuator := DummyActuator{}
-	exitChannel := StartActuatorPlugin(actuator, "localhost", 3350, "localhost", 33350)
+	exitChannel := StartActuatorPlugin(actuator, "localhost", 43351, "localhost", 43350)
 	if err != nil {
 		t.Errorf("Error should have been nil, was: %v", err)
 	}

@@ -59,6 +59,11 @@ spec:
         - name: matplotlib-tmp
           mountPath: /var/tmp
       env:
+        - name: IDO_PLUGIN_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: plugin-auth-secret
+              key: auth-token
         # Needed for the analytics python script.
         - name: MONGO_URL
           value: "mongodb://planner-mongodb-service:27017/"

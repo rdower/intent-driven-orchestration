@@ -33,11 +33,15 @@ func NewPluginManagerServer(actuators []actuators.Actuator, endpoint string, por
 }
 
 // Register registration callback triggered when the server received a new register rpc call from a plugin
-func (pm *PluginManagerServer) Register(_ context.Context, r *protobufs.RegisterRequest) (*protobufs.RegistrationStatusResponse, error) {
+func (pm *PluginManagerServer) Register(ctx context.Context, r *protobufs.RegisterRequest) (*protobufs.RegistrationStatusResponse, error) {
 	klog.Infof("Received plugin registration for plugin name: %s with endpoint: %s.", r.PInfo.Name, r.PInfo.Endpoint)
 	resp := &protobufs.RegistrationStatusResponse{
 		PluginRegistered: false,
 		Error:            "",
+	}
+
+	if err := requirePluginAuth(ctx, pm.authToken); err != nil {
+		return resp, err
 	}
 
 	if r.PInfo.SupportedVersions != pluginVersion {
@@ -50,7 +54,7 @@ func (pm *PluginManagerServer) Register(_ context.Context, r *protobufs.Register
 	_, ok = pm.registeredPlugins[r.PInfo.Name]
 	pm.mu.Unlock()
 	if !ok {
-		aClientStub, err := newActuatorClientStub(r.PInfo, pm.retries)
+		aClientStub, err := newActuatorClientStub(r.PInfo, pm.retries, pm.authToken)
 		if err != nil {
 			resp.Error = fmt.Sprintf("Actuator Client Stub Error: %s.", err)
 			return resp, nil
@@ -108,6 +112,12 @@ func (pm *PluginManagerServer) Iter(f func(a actuators.Actuator)) {
 
 // Start starts the grpc server for the actuator
 func (pm *PluginManagerServer) Start() error {
+	authToken, err := getPluginAuthToken()
+	if err != nil {
+		return err
+	}
+	pm.authToken = authToken
+
 	sock, err := net.Listen("tcp", fmt.Sprintf(":%d", pm.port))
 	if err != nil {
 		return err

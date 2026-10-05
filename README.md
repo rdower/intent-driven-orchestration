@@ -1,6 +1,12 @@
 
 # Intent Driven Orchestration Planner
 
+## Plugin manager authentication
+
+The plugin manager now requires every actuator plugin to authenticate with a shared token supplied through the `IDO_PLUGIN_AUTH_TOKEN` environment variable. The same token must be present on the planner pod and on every actuator plugin pod.
+
+The example deployment manifest now creates a `plugin-auth-secret` secret and injects it into the shipped planner and actuator manifests. If the token is missing or wrong, plugin registration is rejected and planner-to-plugin gRPC calls fail closed.
+
 ![planner.png](planner.png)
 
 Today’s container orchestration engine solutions promote a model of requesting a specific quantity of resources (e.g.

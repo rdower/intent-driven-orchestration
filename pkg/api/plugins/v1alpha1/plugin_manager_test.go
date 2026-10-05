@@ -5,6 +5,7 @@ package plugins
 import (
 	"context"
 	"net"
+	"os"
 	"testing"
 
 	protobufs "github.com/intel/intent-driven-orchestration/pkg/api/plugins/v1alpha1/protobufs"
@@ -71,11 +72,13 @@ func newTestPluginManager(ctx context.Context) (protobufs.RegistrationClient, fu
 }
 
 func TestNewPluginManager(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 55555)
 	assert.NotNil(t, pm)
 }
 
 func TestSuccessfulPluginRegistration(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	ctx := context.Background()
 	pluginManager, closer, mDaemon := newTestPluginManager(ctx)
 	regReq := protobufs.RegisterRequest{
@@ -95,4 +98,11 @@ func TestSuccessfulPluginRegistration(t *testing.T) {
 	defer closer()
 	assert.Nil(t, err)
 	assert.True(t, resp.PluginRegistered)
+}
+
+func TestMissingPluginAuthToken(t *testing.T) {
+	_ = os.Unsetenv(pluginAuthTokenEnvVar)
+	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 55556)
+	err := pm.Start()
+	assert.ErrorIs(t, err, errMissingPluginAuthToken)
 }

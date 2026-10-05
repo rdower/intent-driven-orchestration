@@ -23,6 +23,12 @@ func validateActuator(t *testing.T, e []common.State, u []float64, a []planner.A
 
 func mockedNextStateFunc(_ *common.State, _ *common.State, _ map[string]common.Profile) ([]common.State, []float64, []planner.Action) {
 	vSet := generateActuatorValidationSet()
+	vSet.end = vSet.end[:1]
+	vSet.utilities = vSet.utilities[:1]
+	vSet.actions = vSet.actions[:1]
+	for idx := range vSet.actions {
+		vSet.actions[idx].Name = "test-actuator-1"
+	}
 	return vSet.end, vSet.utilities, vSet.actions
 }
 
@@ -37,11 +43,13 @@ func (tme *TestMe) mockedEffectFunc(state *common.State, profiles map[string]com
 }
 
 func TestNewActuatorStub(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	a := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
 	assert.NotNil(t, a)
 }
 
 func TestNewActuatorPluginStubWithSuccessfulRegistration(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -64,6 +72,7 @@ func TestNewActuatorPluginStubWithSuccessfulRegistration(t *testing.T) {
 }
 
 func TestNewActuatorPluginWithUnsupportedVersion(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -86,6 +95,7 @@ func TestNewActuatorPluginWithUnsupportedVersion(t *testing.T) {
 }
 
 func TestPluginDeregistration(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -113,6 +123,7 @@ func TestPluginDeregistration(t *testing.T) {
 }
 
 func TestActuatorStubNextState(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -125,6 +136,12 @@ func TestActuatorStubNextState(t *testing.T) {
 	err = s.Register()
 	assert.Nil(t, err)
 	vSet := generateActuatorValidationSet()
+	vSet.end = vSet.end[:1]
+	vSet.utilities = vSet.utilities[:1]
+	vSet.actions = vSet.actions[:1]
+	for idx := range vSet.actions {
+		vSet.actions[idx].Name = "test-actuator-1"
+	}
 	f := func(act actuators.Actuator) {
 		e, u, a := act.NextState(vSet.start, vSet.goal, vSet.profiles)
 		validateActuator(t, e, u, a, vSet)
@@ -137,6 +154,7 @@ func TestActuatorStubNextState(t *testing.T) {
 }
 
 func BenchmarkActuatorStubNextState(b *testing.B) {
+	b.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(b, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -167,6 +185,7 @@ func BenchmarkActuatorStubNextState(b *testing.B) {
 }
 
 func TestActuatorPerform(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)
@@ -194,6 +213,7 @@ func TestActuatorPerform(t *testing.T) {
 }
 
 func TestActuatorEffect(t *testing.T) {
+	t.Setenv(pluginAuthTokenEnvVar, "test-token")
 	pm := NewPluginManagerServer([]actuators.Actuator{}, "localhost", 3333)
 	assert.NotNil(t, pm)
 	s := NewActuatorPluginStub("test-actuator-1", "localhost", 3334, "localhost", 3333)

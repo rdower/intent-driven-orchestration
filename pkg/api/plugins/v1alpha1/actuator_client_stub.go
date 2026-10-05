@@ -23,6 +23,7 @@ import (
 type ActuatorClientStub struct {
 	actuators.Actuator
 	pluginInfo PInfo
+	authToken  string
 	client     protobufs.ActuatorPluginClient
 	clientConn *grpc.ClientConn
 	stopTime   time.Time
@@ -31,11 +32,17 @@ type ActuatorClientStub struct {
 }
 
 // newActuatorClientStub creates new client stub for actuator plugins
-func newActuatorClientStub(pInfo *protobufs.PluginInfo, numberOfRetries int) (*ActuatorClientStub, error) {
+func newActuatorClientStub(pInfo *protobufs.PluginInfo, numberOfRetries int, authToken string) (*ActuatorClientStub, error) {
 	klog.V(2).Infof("Connecting to plugin endpoint: %s.", pInfo.Endpoint)
 
 	// nolint:staticcheck // SA1019: grpc.Dial is deprecated — but supported in 1.0; for GRPC 2.0 we'll need to check if the connection is ready.
-	conn, err := grpc.Dial(pInfo.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	conn, err := grpc.Dial(
+		pInfo.Endpoint,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+		grpc.WithUnaryInterceptor(pluginAuthUnaryClientInterceptor(authToken)),
+		grpc.WithStreamInterceptor(pluginAuthStreamClientInterceptor(authToken)),
+	)
 	if err != nil {
 		klog.ErrorS(err, "Cannot connect to actuator plugin endpoint: ", pInfo.Endpoint)
 	}
@@ -43,7 +50,13 @@ func newActuatorClientStub(pInfo *protobufs.PluginInfo, numberOfRetries int) (*A
 	for retries > 0 && err != nil && (conn == nil || conn.GetState() != connectivity.Ready) {
 		time.Sleep(5 * time.Second) // TODO: make configurable.
 		// nolint:staticcheck // SA1019: grpc.Dial is deprecated — but supported in 1.0; for GRPC 2.0 we'll need to check if the connection is ready.
-		conn, err = grpc.Dial(pInfo.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+		conn, err = grpc.Dial(
+			pInfo.Endpoint,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+			grpc.WithUnaryInterceptor(pluginAuthUnaryClientInterceptor(authToken)),
+			grpc.WithStreamInterceptor(pluginAuthStreamClientInterceptor(authToken)),
+		)
 		if err != nil {
 			klog.ErrorS(err, "Cannot connect to actuator plugin endpoint: ", pInfo.Endpoint)
 		}
@@ -54,6 +67,7 @@ func newActuatorClientStub(pInfo *protobufs.PluginInfo, numberOfRetries int) (*A
 	}
 	return &ActuatorClientStub{
 		pluginInfo: toPInfo(pInfo),
+		authToken:  authToken,
 		client:     protobufs.NewActuatorPluginClient(conn),
 		clientConn: conn,
 	}, nil
@@ -166,8 +180,8 @@ func toGrpcActions(actions []planner.Action) []*protobufs.Action {
 	return res
 }
 
-// getNextStateResponse unpacks the given nextState response and return the results of the rpc
-func getNextStateResponse(r *protobufs.NextStateResponse) ([]common.State, []float64, []planner.Action) {
+// getNextStateResponse unpacks the given nextState response and returns only actions owned by the registered plugin.
+func getNextStateResponse(r *protobufs.NextStateResponse, allowedActionName string) ([]common.State, []float64, []planner.Action) {
 	var states []common.State
 	for _, v := range r.States {
 		s := common.State{
@@ -203,7 +217,15 @@ func getNextStateResponse(r *protobufs.NextStateResponse) ([]common.State, []flo
 		states = append(states, s)
 	}
 	var a []planner.Action
-	for _, v := range r.Actions {
+	for idx, v := range r.Actions {
+		if v.Name != allowedActionName {
+			klog.Warningf("Ignoring unexpected action %q from plugin %q", v.Name, allowedActionName)
+			continue
+		}
+		if idx >= len(r.Utilities) || idx >= len(states) {
+			klog.Warningf("Ignoring malformed response from plugin %q due to inconsistent response lengths", allowedActionName)
+			break
+		}
 		var p interface{}
 		if v.Properties.Type == protobufs.PropertyType_INT_PROPERTY {
 			p = v.Properties.IntProperties
@@ -215,7 +237,22 @@ func getNextStateResponse(r *protobufs.NextStateResponse) ([]common.State, []flo
 			Properties: p,
 		})
 	}
-	return states, r.Utilities, a
+	if len(a) == len(r.Actions) {
+		return states, r.Utilities, a
+	}
+	filteredStates := make([]common.State, 0, len(a))
+	filteredUtilities := make([]float64, 0, len(a))
+	for idx, v := range r.Actions {
+		if v.Name != allowedActionName {
+			continue
+		}
+		if idx >= len(states) || idx >= len(r.Utilities) {
+			break
+		}
+		filteredStates = append(filteredStates, states[idx])
+		filteredUtilities = append(filteredUtilities, r.Utilities[idx])
+	}
+	return filteredStates, filteredUtilities, a
 }
 
 // getPerformRequest create a new grpc request for the perform function
@@ -286,7 +323,7 @@ func (a *ActuatorClientStub) NextState(state *common.State, goal *common.State, 
 		return nil, nil, nil
 	}
 
-	return getNextStateResponse(response)
+	return getNextStateResponse(response, a.pluginInfo.Name)
 }
 
 // Perform triggers Perform RPC to plugin

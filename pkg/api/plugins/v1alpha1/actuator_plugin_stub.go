@@ -49,6 +49,7 @@ type ActuatorPluginStub struct {
 	server                *grpc.Server
 	name                  string
 	version               string
+	authToken             string
 	endpoint              string
 	port                  int
 	pluginManagerEndpoint string
@@ -142,13 +143,24 @@ func (s *ActuatorPluginStub) Stop() error {
 // Register registers the actuator plugin for the given name with ido controller.
 func (s *ActuatorPluginStub) Register() error {
 	klog.Infof("Actuator %s: performing plugin registration at %s:%d.", s.name, s.pluginManagerEndpoint, s.pluginManagerPort)
+	authToken, err := getPluginAuthToken()
+	if err != nil {
+		return err
+	}
+	s.authToken = authToken
 	if s.port <= 0 || s.port > 65535 || s.pluginManagerPort <= 0 || s.pluginManagerPort > 65535 {
 		return fmt.Errorf("failed. Both ports need to be in a valid range: %d - %d", s.port, s.pluginManagerPort)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // TODO: make configurable.
 	defer cancel()
 	// nolint:staticcheck // SA1019: grpc.Dial is deprecated — but supported in 1.0; for GRPC 2.0 we'll need to check if the connection is ready.
-	conn, err := grpc.DialContext(ctx, fmt.Sprintf("%s:%d", s.pluginManagerEndpoint, s.pluginManagerPort), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	conn, err := grpc.DialContext(
+		ctx,
+		fmt.Sprintf("%s:%d", s.pluginManagerEndpoint, s.pluginManagerPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+		grpc.WithUnaryInterceptor(pluginAuthUnaryClientInterceptor(s.authToken)),
+	)
 	if err != nil {
 		klog.ErrorS(err, "Cannot establish a connection to the plugin manager.")
 	}
@@ -156,7 +168,13 @@ func (s *ActuatorPluginStub) Register() error {
 	for retries > 0 && err != nil && (conn == nil || conn.GetState() != connectivity.Ready) {
 		time.Sleep(5 * time.Second) // TODO: make configurable.
 		// nolint:staticcheck // SA1019: grpc.Dial is deprecated — but supported in 1.0; for GRPC 2.0 we'll need to check if the connection is ready.
-		conn, err = grpc.DialContext(ctx, fmt.Sprintf("%s:%d", s.pluginManagerEndpoint, s.pluginManagerPort), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+		conn, err = grpc.DialContext(
+			ctx,
+			fmt.Sprintf("%s:%d", s.pluginManagerEndpoint, s.pluginManagerPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+			grpc.WithUnaryInterceptor(pluginAuthUnaryClientInterceptor(s.authToken)),
+		)
 		if err != nil {
 			klog.ErrorS(err, "Cannot establish connection to the plugin manager.")
 		}
@@ -276,6 +294,12 @@ func getNextStateResponseServer(states []common.State, utilities []float64, acti
 
 // NextState grpc callback for the nextState function of pluggable Actuators
 func (s *ActuatorPluginStub) NextState(stream protobufs.ActuatorPlugin_NextStateServer) error {
+	if s.authToken == "" {
+		return errMissingPluginAuthToken
+	}
+	if err := requirePluginAuth(stream.Context(), s.authToken); err != nil {
+		return err
+	}
 	klog.V(3).InfoS("NextState GRPC call", "request", stream)
 	for {
 		r, err := stream.Recv()
@@ -290,14 +314,26 @@ func (s *ActuatorPluginStub) NextState(stream protobufs.ActuatorPlugin_NextState
 }
 
 // Perform grpc callback for the perform function of pluggable Actuators
-func (s *ActuatorPluginStub) Perform(_ context.Context, r *protobufs.PerformRequest) (*protobufs.Empty, error) {
+func (s *ActuatorPluginStub) Perform(ctx context.Context, r *protobufs.PerformRequest) (*protobufs.Empty, error) {
+	if s.authToken == "" {
+		return nil, errMissingPluginAuthToken
+	}
+	if err := requirePluginAuth(ctx, s.authToken); err != nil {
+		return nil, err
+	}
 	klog.V(3).InfoS("Perform GRPC call", "request", r)
 	s.performFunc(toState(r.State), toActions(r.Plan))
 	return &protobufs.Empty{}, nil
 }
 
 // Effect grpc callback for the Effect function of pluggable Actuators
-func (s *ActuatorPluginStub) Effect(_ context.Context, r *protobufs.EffectRequest) (*protobufs.Empty, error) {
+func (s *ActuatorPluginStub) Effect(ctx context.Context, r *protobufs.EffectRequest) (*protobufs.Empty, error) {
+	if s.authToken == "" {
+		return nil, errMissingPluginAuthToken
+	}
+	if err := requirePluginAuth(ctx, s.authToken); err != nil {
+		return nil, err
+	}
 	klog.V(3).InfoS("Effect GRPC call", "request", r)
 	s.effectFunc(toState(r.State), toProfiles(r.Profiles))
 	return &protobufs.Empty{}, nil

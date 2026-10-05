@@ -21,10 +21,15 @@ func TestGetNextStateResponse(t *testing.T) {
 	var response protobufs.NextStateResponse
 	vSet := generateActuatorValidationSet()
 	vSetGrpc := generateActuatorGrpcValidationSet()
+	vSet.actions[0].Name = "allowed-action"
+	vSetGrpc.actions[0].Name = "allowed-action"
+	vSet.actions = vSet.actions[:1]
+	vSet.utilities = vSet.utilities[:1]
+	vSet.end = vSet.end[:1]
+	response.Actions = []*protobufs.Action{vSetGrpc.actions[0], vSetGrpc.actions[1]}
 	response.States = vSetGrpc.end
 	response.Utilities = vSetGrpc.utilities
-	response.Actions = vSetGrpc.actions
-	e, u, a := getNextStateResponse(&response)
+	e, u, a := getNextStateResponse(&response, "allowed-action")
 	assert.Equal(t, vSet.end, e)
 	assert.Equal(t, vSet.utilities, u)
 	assert.Equal(t, vSet.actions, a)

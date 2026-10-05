@@ -48,6 +48,14 @@ data:
     }
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  name: plugin-auth-secret
+type: Opaque
+stringData:
+  auth-token: change-me-to-a-long-random-secret
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: planner-queries-configmap
@@ -227,6 +235,11 @@ spec:
         - name: planner-queries
           mountPath: /queries/
       env:
+        - name: IDO_PLUGIN_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: plugin-auth-secret
+              key: auth-token
         # Needed for the analytics python script.
         - name: MONGO_URL
           value: "mongodb://planner-mongodb-service:27017/"
